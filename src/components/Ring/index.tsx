@@ -25,10 +25,34 @@ type Profile = {
   createdAt: Date
 }
 
+// Convert hex color (e.g. "#FF0000") to RGB values (e.g. "255,0,0")
+const hexToRgb = (hex: string) => {
+  // Remove # if present
+  const cleanHex = hex.startsWith('#') ? hex.slice(1) : hex;
+  const r = parseInt(cleanHex.slice(0, 2), 16);
+  const g = parseInt(cleanHex.slice(2, 4), 16);
+  const b = parseInt(cleanHex.slice(4, 6), 16);
+  return `${r},${g},${b}`;
+};
+
+// Send LED colors to the API
+const sendColorsToApi = async (colors: string[]) => {
+  try {
+    const rgbValues = colors.map(hexToRgb).join(';');
+    await fetch("http://192.168.1.200/setleds", {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: rgbValues
+    });
+  } catch (error) {
+    console.error("Error sending colors to API:", error);
+  }
+};
+
 export default function NeoPixelRing() {
   // Client-side rendering check
   const [isClient, setIsClient] = useState(false)
-  
+
   // Ekran boyutu kontrolü
   const isMobile = useMediaQuery("(max-width: 640px)")
   const isTablet = useMediaQuery("(min-width: 641px) and (max-width: 1024px)")
@@ -40,6 +64,9 @@ export default function NeoPixelRing() {
 
   // LED renklerini tutan state
   const [colors, setColors] = useState<string[]>(initialColors)
+
+  // Tüm LEDler için ortak renk
+  const [globalColor, setGlobalColor] = useState("#000000")
 
   // Seçili LED indeksi
   const [selectedLed, setSelectedLed] = useState<number | null>(null)
@@ -62,10 +89,18 @@ export default function NeoPixelRing() {
     setIsClient(true)
   }, [])
 
-  // Ekran boyutuna göre halka boyutunu ayarla
+  // Send colors to API whenever they change
   useEffect(() => {
     if (!isClient) return
     
+    // Send the current colors to the API
+    sendColorsToApi(colors)
+  }, [colors, isClient])
+
+  // Ekran boyutuna göre halka boyutunu ayarla
+  useEffect(() => {
+    if (!isClient) return
+
     if (isMobile) {
       setRingSize({ width: 240, height: 240 })
       setLedSize(24)
@@ -82,17 +117,17 @@ export default function NeoPixelRing() {
   // Tarayıcı depolamasından profilleri yükle
   useEffect(() => {
     if (!isClient) return
-    
+
     try {
       const savedProfiles = localStorage.getItem("neopixelProfiles")
       if (savedProfiles) {
         const parsedProfiles = JSON.parse(savedProfiles)
         // Tarihleri düzelt
-        const fixedProfiles = parsedProfiles.map((profile: any) => ({
+        const fixedProfiles = parsedProfiles.map((profile: Partial<Profile>) => ({
           ...profile,
-          createdAt: new Date(profile.createdAt),
+          createdAt: new Date(profile.createdAt as unknown as string),
         }))
-        setProfiles(fixedProfiles)
+        setProfiles(fixedProfiles as Profile[])
       }
     } catch (e) {
       console.error("Profiller yüklenemedi:", e)
@@ -182,7 +217,7 @@ export default function NeoPixelRing() {
   // Profil silme
   const deleteProfile = (id: string) => {
     if (!isClient) return
-    
+
     const updatedProfiles = profiles.filter((profile) => profile.id !== id)
     setProfiles(updatedProfiles)
 
@@ -202,6 +237,12 @@ export default function NeoPixelRing() {
   // Hazır şema yükleme
   const loadPreset = (preset: (typeof presetSchemes)[0]) => {
     setColors([...preset.colors])
+  }
+
+  // Tüm LEDleri değiştirme
+  const changeAllLedsColor = (color: string) => {
+    setColors(Array(LED_COUNT).fill(color))
+    setGlobalColor(color)
   }
 
   // If not client-side yet, show a minimal version to avoid hydration mismatch
@@ -235,10 +276,10 @@ export default function NeoPixelRing() {
         >
           {/* Halka arka planı */}
           <div
-            className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 rounded-full border-[15px] border-gray-700 bg-transparent shadow-inner"
+            className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 rounded-full border-[12px] border-muted bg-transparent shadow-inner"
             style={{
-              width: `${ringSize.width * 0.87}px`,
-              height: `${ringSize.height * 0.87}px`,
+              width: `${ringSize.width * 0.83}px`,
+              height: `${ringSize.height * 0.83}px`,
             }}
           ></div>
 
@@ -283,42 +324,10 @@ export default function NeoPixelRing() {
         <Card className="h-full px-4">
           <Tabs defaultValue="color" value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid grid-cols-4 w-full">
-              <TabsTrigger value="color">Renk Seçimi  {activeTab === "color" && (
-                <motion.div
-                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary"
-                  layoutId="activeTabIndicator-color"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                />
-              )}</TabsTrigger>
-              <TabsTrigger value="controls">Kontroller  {activeTab === "controls" && (
-                <motion.div
-                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary"
-                  layoutId="activeTabIndicator-controls"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                />
-              )}</TabsTrigger>
-              <TabsTrigger value="presets">Hazır Ayarlar   {activeTab === "presets" && (
-                <motion.div
-                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary"
-                  layoutId="activeTabIndicator-presets"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                />
-              )}</TabsTrigger>
-              <TabsTrigger value="profiles">Profiller  {activeTab === "profiles" && (
-                <motion.div
-                  className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary"
-                  layoutId="activeTabIndicator-profiles"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                />
-              )}</TabsTrigger>
+              <TabsTrigger value="color">Renk Seçimi  </TabsTrigger>
+              <TabsTrigger value="controls" className="relative z-10">Kontroller</TabsTrigger>
+              <TabsTrigger value="presets" className="relative z-10"  >Hazır Ayarlar</TabsTrigger>
+              <TabsTrigger value="profiles">Profiller</TabsTrigger>
             </TabsList>
 
             <AnimatePresence mode="wait">
@@ -349,7 +358,7 @@ export default function NeoPixelRing() {
                               changeLedColor(selectedLed, newColor)
                             }
                           }}
-                          className="w-full max-w-[240px] mx-auto"
+                          className="w-full "
                         />
                         <div className="flex justify-between items-center">
                           <span className="text-sm font-mono">{selectedLed !== null ? colors[selectedLed] : ""}</span>
@@ -379,6 +388,7 @@ export default function NeoPixelRing() {
                   <CardContent className="pt-6">
                     <h3 className="text-lg font-medium mb-4">LED Kontrolleri</h3>
                     <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-4 xl:grid-cols-6 gap-2">
+
                       {colors.map((color, index) => (
                         <div
                           key={index}
@@ -400,34 +410,38 @@ export default function NeoPixelRing() {
                       ))}
                     </div>
 
-                    <div className="space-y-2 pt-6">
-                      <div className="flex justify-between">
-                        <span className="text-sm font-medium">Animasyon Hızı</span>
-                        <span className="text-sm">{animationSpeed}%</span>
+                    <div className="border-t pt-6 mt-6">
+                      <h4 className="font-medium mb-4">Tüm LEDleri Değiştir</h4>
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium">Toplu Renk</span>
+                          <div
+                            className="w-8 h-8 rounded-full border border-gray-300"
+                            style={{ backgroundColor: globalColor }}
+                          ></div>
+                        </div>
+                        <HexColorPicker
+                          color={globalColor}
+                          onChange={(newColor) => {
+                            setGlobalColor(newColor)
+                          }}
+                          className="w-full"
+                        />
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm font-mono">{globalColor}</span>
+                          <Button
+                            variant="default"
+                            size="sm"
+                            onClick={() => changeAllLedsColor(globalColor)}
+                          >
+                            Uygula
+                          </Button>
+                        </div>
                       </div>
-                      <Slider
-                        value={[animationSpeed]}
-                        min={1}
-                        max={100}
-                        step={1}
-                        onValueChange={(value) => setAnimationSpeed(value[0])}
-                      />
                     </div>
 
-                    <div className="flex flex-col sm:flex-row justify-between gap-2 pt-4">
-                      <Button variant="outline" className="flex items-center gap-2 flex-1" onClick={resetAllLeds}>
-                        <RefreshCw size={16} />
-                        Sıfırla
-                      </Button>
-                      <Button
-                        variant={isAnimating ? "destructive" : "default"}
-                        className="flex items-center gap-2 flex-1 mt-2 sm:mt-0"
-                        onClick={startRainbowEffect}
-                      >
-                        <Play size={16} />
-                        {isAnimating ? "Durdur" : "Gökkuşağı"}
-                      </Button>
-                    </div>
+
+
                   </CardContent>
                 </motion.div>
               </TabsContent>
